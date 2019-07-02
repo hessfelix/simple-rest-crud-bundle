@@ -98,21 +98,21 @@ abstract class AbstractApiResourceController extends AbstractFOSRestController
      *
      * @return string
      */
-    public abstract function getApiResourceClass(): string;
+    abstract public function getApiResourceClass(): string;
 
     /**
      * The function returns the class name of the filter class.
      *
      * @return string
      */
-    public abstract function getApiResourceFilterFormClass(): string;
+    abstract public function getApiResourceFilterFormClass(): string;
 
     /**
      * The function returns the class name of the the filter class to update the entity handled in this controller.
      *
      * @return string
      */
-    public abstract function getApiResourceFormClass(): string;
+    abstract public function getApiResourceFormClass(): string;
 
     /**
      * @return int
@@ -202,6 +202,7 @@ abstract class AbstractApiResourceController extends AbstractFOSRestController
      * @param string $id
      *
      * @return View
+     *
      * @throws \Exception
      *
      * @Rest\Put("/{id}")
@@ -221,6 +222,7 @@ abstract class AbstractApiResourceController extends AbstractFOSRestController
      * @param ApiResource|null $apiResource
      *
      * @return View
+     *
      * @throws \Exception
      *
      * @Rest\Post("")
