@@ -83,7 +83,7 @@ class FormErrorHandler extends JMSFormErrorsHandler
             $visitor->setRoot($children);
         }
 
-        if ($data->getRoot() === $data) {
+        if ($data->getRoot() === $data && array_key_exists('errors', $form)) {
             return new \ArrayObject($form['errors']);
         }
 

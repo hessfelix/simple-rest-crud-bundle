@@ -10,12 +10,12 @@
 namespace Hessnatur\SimpleRestCRUDBundle\Controller;
 
 use Doctrine\ORM\QueryBuilder;
+use FOS\RestBundle\Controller\AbstractFOSRestController;
 use FOS\RestBundle\Controller\Annotations as Rest;
 use FOS\RestBundle\View\View;
 use FOS\RestBundle\View\ViewHandlerInterface;
 use Hessnatur\SimpleRestCRUDBundle\Event\ApiResourceEvent;
 use Hessnatur\SimpleRestCRUDBundle\HessnaturSimpleRestCRUDEvents;
-use Hessnatur\SimpleRestCRUDBundle\Manager\ApiResourceManager;
 use Hessnatur\SimpleRestCRUDBundle\Manager\ApiResourceManagerInterface;
 use Hessnatur\SimpleRestCRUDBundle\Model\ApiResource;
 use Hessnatur\SimpleRestCRUDBundle\Repository\ApiResourceRepositoryInterface;
@@ -26,6 +26,7 @@ use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use Psr\Log\LoggerInterface;
 
 /**
  * @author Felix Niedballa <felix.niedballa@hess-natur.de>
@@ -74,6 +75,7 @@ abstract class AbstractApiResourceController extends AbstractFOSRestController
      * @param FilterBuilderUpdaterInterface $filterBuilderUpdater
      * @param RequestStack                  $requestStack
      * @param ViewHandlerInterface          $viewHandler
+     * @param LoggerInterface               $logger
      */
     public function __construct(
         ApiResourceManagerInterface $apiResourceManager,
@@ -147,7 +149,7 @@ abstract class AbstractApiResourceController extends AbstractFOSRestController
             in_array($orderByField, $this->getRepository()::getSortableFields())
             && in_array(strtolower($orderByDirection), ['asc', 'desc'])
         ) {
-            $queryBuilder->orderBy($queryBuilder->getRootAliases()[0] . '.' . $orderByField, $orderByDirection);
+            $queryBuilder->orderBy($queryBuilder->getRootAliases()[0].'.'.$orderByField, $orderByDirection);
         }
 
         $this->filterBuilderUpdater->addFilterConditions($form, $queryBuilder);
@@ -195,7 +197,13 @@ abstract class AbstractApiResourceController extends AbstractFOSRestController
             HessnaturSimpleRestCRUDEvents::AFTER_DELETE_API_RESOURCE
         );
 
-        return View::create(null, Response::HTTP_OK);
+        /**
+         * No Content given
+         * @see https://www.w3.org/Protocols/rfc2616/rfc2616-sec9.html
+         * @see https://en.wikipedia.org/wiki/List_of_HTTP_status_codes#2xx_Success
+         */
+
+        return View::create(null, Response::HTTP_NO_CONTENT);
     }
 
     /**
@@ -211,7 +219,7 @@ abstract class AbstractApiResourceController extends AbstractFOSRestController
     public function putApiResourceAction(string $id)
     {
         $apiResource = $this->fetchApiResource($id);
-        if (!$apiResource->getUserCanEdit()) {
+        if (!$apiResource->getUserCanUpdate()) {
             throw new AccessDeniedHttpException();
         }
 
@@ -250,9 +258,7 @@ abstract class AbstractApiResourceController extends AbstractFOSRestController
                     ? HessnaturSimpleRestCRUDEvents::BEFORE_CREATE_API_RESOURCE
                     : HessnaturSimpleRestCRUDEvents::BEFORE_UPDATE_API_RESOURCE
             );
-
             $this->apiResourceManager->update($apiResource);
-
             $this->eventDispatcher->dispatch(
                 new ApiResourceEvent($apiResource),
                 $responseCode === Response::HTTP_CREATED
