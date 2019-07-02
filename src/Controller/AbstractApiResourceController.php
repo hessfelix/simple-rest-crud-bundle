@@ -10,6 +10,7 @@
 namespace Hessnatur\SimpleRestCRUDBundle\Controller;
 
 use Doctrine\ORM\QueryBuilder;
+use FOS\RestBundle\Controller\Annotations as Rest;
 use FOS\RestBundle\View\View;
 use FOS\RestBundle\View\ViewHandlerInterface;
 use Hessnatur\SimpleRestCRUDBundle\Event\ApiResourceEvent;
@@ -17,7 +18,6 @@ use Hessnatur\SimpleRestCRUDBundle\HessnaturSimpleRestCRUDEvents;
 use Hessnatur\SimpleRestCRUDBundle\Manager\ApiResourceManager;
 use Hessnatur\SimpleRestCRUDBundle\Manager\ApiResourceManagerInterface;
 use Hessnatur\SimpleRestCRUDBundle\Model\ApiResource;
-use FOS\RestBundle\Controller\Annotations as Rest;
 use Hessnatur\SimpleRestCRUDBundle\Repository\ApiResourceRepositoryInterface;
 use Lexik\Bundle\FormFilterBundle\Filter\FilterBuilderUpdaterInterface;
 use Symfony\Component\EventDispatcher\EventDispatcherInterface;
@@ -30,7 +30,7 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 /**
  * @author Felix Niedballa <felix.niedballa@hess-natur.de>
  */
-abstract class AbstractApiResourceController
+abstract class AbstractApiResourceController extends AbstractFOSRestController
 {
     /**
      * @var ApiResourceManagerInterface
@@ -63,6 +63,11 @@ abstract class AbstractApiResourceController
     protected $viewHandler;
 
     /**
+     * @var LoggerInterface
+     */
+    protected $logger;
+
+    /**
      * @param ApiResourceManagerInterface   $apiResourceManager
      * @param EventDispatcherInterface      $eventDispatcher
      * @param FormFactoryInterface          $formFactory
@@ -71,12 +76,13 @@ abstract class AbstractApiResourceController
      * @param ViewHandlerInterface          $viewHandler
      */
     public function __construct(
-        ApiResourceManager $apiResourceManager,
+        ApiResourceManagerInterface $apiResourceManager,
         EventDispatcherInterface $eventDispatcher,
         FormFactoryInterface $formFactory,
         FilterBuilderUpdaterInterface $filterBuilderUpdater,
         RequestStack $requestStack,
-        ViewHandlerInterface $viewHandler
+        ViewHandlerInterface $viewHandler,
+        LoggerInterface $logger
     ) {
         $this->apiResourceManager = $apiResourceManager;
         $this->eventDispatcher = $eventDispatcher;
@@ -84,6 +90,7 @@ abstract class AbstractApiResourceController
         $this->filterBuilderUpdater = $filterBuilderUpdater;
         $this->requestStack = $requestStack;
         $this->viewHandler = $viewHandler;
+        $this->logger = $logger;
     }
 
     /**
@@ -124,7 +131,7 @@ abstract class AbstractApiResourceController
     public function getApiResourcesAction()
     {
         $queryBuilder = $this->createQueryBuilder();
-        $form = $this->formFactory->create($this->getApiResourceFilterFormClass());
+        $form = $this->formFactory->createNamed(null, $this->getApiResourceFilterFormClass());
         $form->submit($this->requestStack->getCurrentRequest()->query->all());
 
         $orderByField = $this->requestStack->getMasterRequest()->query->get(
@@ -180,7 +187,13 @@ abstract class AbstractApiResourceController
             new ApiResourceEvent($apiResource),
             HessnaturSimpleRestCRUDEvents::BEFORE_DELETE_API_RESOURCE
         );
+
         $this->apiResourceManager->remove($apiResource);
+
+        $this->eventDispatcher->dispatch(
+            new ApiResourceEvent($apiResource),
+            HessnaturSimpleRestCRUDEvents::AFTER_DELETE_API_RESOURCE
+        );
 
         return View::create(null, Response::HTTP_OK);
     }
@@ -225,7 +238,7 @@ abstract class AbstractApiResourceController
             }
         }
 
-        $form = $this->formFactory->create($this->getApiResourceFormClass(), $apiResource);
+        $form = $this->formFactory->createNamed(null, $this->getApiResourceFormClass(), $apiResource);
         $form->submit($this->requestStack->getMasterRequest()->request->all());
 
         if ($form->isValid()) {
@@ -235,7 +248,9 @@ abstract class AbstractApiResourceController
                     ? HessnaturSimpleRestCRUDEvents::BEFORE_CREATE_API_RESOURCE
                     : HessnaturSimpleRestCRUDEvents::BEFORE_UPDATE_API_RESOURCE
             );
+
             $this->apiResourceManager->update($apiResource);
+
             $this->eventDispatcher->dispatch(
                 new ApiResourceEvent($apiResource),
                 $responseCode === Response::HTTP_CREATED
@@ -243,10 +258,21 @@ abstract class AbstractApiResourceController
                     : HessnaturSimpleRestCRUDEvents::AFTER_UPDATE_API_RESOURCE
             );
 
+
             return View::create($apiResource, $responseCode);
         }
 
         return View::create(['form' => $form], Response::HTTP_BAD_REQUEST);
+    }
+
+    /**
+     * @return ApiResource
+     */
+    protected function createApiResource()
+    {
+        $apiResourceClass = $this->getApiResourceClass();
+
+        return new $apiResourceClass();
     }
 
     /**
@@ -292,19 +318,10 @@ abstract class AbstractApiResourceController
             'maxResults' => count($results),
             'results' => array_slice($results, ($page - 1) * $limit, $limit),
             'pages' => ceil(count($results) / $limit),
-            'currentPage' => $page
+            'currentPage' => $page,
         ];
 
         return $paginationData;
-    }
-
-    /**
-     * @return ApiResource
-     */
-    public function createApiResource()
-    {
-        $apiResourceClass = $this->getApiResourceClass();
-        return new $apiResourceClass();
     }
 
     /**
@@ -317,6 +334,7 @@ abstract class AbstractApiResourceController
         if ($alias === null) {
             $alias = 'e';
         }
+
         return $this->getRepository()->createQueryBuilder($alias);
     }
 
