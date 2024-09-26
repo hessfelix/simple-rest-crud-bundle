@@ -60,6 +60,8 @@ The following endpoints a created dynamically:
 | /users  | POST | Creates a new user (defined in ``getApiResourceFormClass()``) |
 | /users/{uuid}  | DELETE | DELETES the user with the given uuid. |
 | /users  | GET | Lists all users (you can filter with query params defined in ``getApiResourceFilterFormClass()``). |
+| /users/new  | GET | Returns a Form for the Creation of Users defined in ``getApiResourceFormClass()``. |
+| /users{uuid}/edit  | GET | Returns a Form for editing the User via the Form defined in ``getApiResourceFormClass()``. |
 
 ### Configure paths ###
 

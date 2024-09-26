@@ -10,6 +10,7 @@
 namespace Hessnatur\SimpleRestCRUDBundle\Model;
 
 use Doctrine\ORM\Mapping as ORM;
+use Gedmo\Timestampable\Traits\TimestampableEntity;
 use JMS\Serializer\Annotation as JMS;
 
 /**
@@ -19,12 +20,15 @@ use JMS\Serializer\Annotation as JMS;
  */
 abstract class ApiResource
 {
+
+    use TimestampableEntity;
     /**
      * @var string
      *
      * @JMS\Expose()
      * @JMS\Type("string")
      * @JMS\Groups({"detail", "list"})
+     * @JMS\Type("string")
      *
      * @ORM\Id
      * @ORM\Column(type="string", unique=true)
@@ -41,15 +45,6 @@ abstract class ApiResource
      */
     protected $self;
 
-    /**
-     * @var \DateTime
-     *
-     * @JMS\Expose()
-     * @JMS\Groups({"detail", "list"})
-     *
-     * @ORM\Column(type="datetime", options={"default": "CURRENT_TIMESTAMP"})
-     */
-    protected $createdAt;
 
     /**
      * @var bool
@@ -119,23 +114,7 @@ abstract class ApiResource
         return $this->self;
     }
 
-    /**
-     * @return \DateTime
-     */
-    public function getCreatedAt(): ?\DateTime
-    {
-        return $this->createdAt;
-    }
-
-    /**
-     * @param \DateTime $createdAt
-     */
-    public function setCreatedAt(\DateTime $createdAt): void
-    {
-        $this->createdAt = $createdAt;
-    }
-
-    /**
+      /**
      * @return bool
      */
     public function getUserCanCreate(): bool

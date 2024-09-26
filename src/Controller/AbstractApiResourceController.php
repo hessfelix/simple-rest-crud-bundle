@@ -10,27 +10,32 @@
 namespace Hessnatur\SimpleRestCRUDBundle\Controller;
 
 use Doctrine\ORM\QueryBuilder;
+use Exception;
+use FOS\RestBundle\Controller\AbstractFOSRestController;
 use FOS\RestBundle\Controller\Annotations as Rest;
+use FOS\RestBundle\Request\ParamFetcher;
 use FOS\RestBundle\View\View;
 use FOS\RestBundle\View\ViewHandlerInterface;
 use Hessnatur\SimpleRestCRUDBundle\Event\ApiResourceEvent;
 use Hessnatur\SimpleRestCRUDBundle\HessnaturSimpleRestCRUDEvents;
-use Hessnatur\SimpleRestCRUDBundle\Manager\ApiResourceManager;
 use Hessnatur\SimpleRestCRUDBundle\Manager\ApiResourceManagerInterface;
 use Hessnatur\SimpleRestCRUDBundle\Model\ApiResource;
 use Hessnatur\SimpleRestCRUDBundle\Repository\ApiResourceRepositoryInterface;
 use Lexik\Bundle\FormFilterBundle\Filter\FilterBuilderUpdaterInterface;
 use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 use Symfony\Component\Form\FormFactoryInterface;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use Psr\Log\LoggerInterface;
+use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 
 /**
  * @author Felix Niedballa <felix.niedballa@hess-natur.de>
  */
-abstract class AbstractApiResourceController
+abstract class AbstractApiResourceController extends AbstractFOSRestController
 {
     /**
      * @var ApiResourceManagerInterface
@@ -63,12 +68,18 @@ abstract class AbstractApiResourceController
     protected $viewHandler;
 
     /**
+     * @var LoggerInterface
+     */
+    protected $logger;
+
+    /**
      * @param ApiResourceManagerInterface   $apiResourceManager
      * @param EventDispatcherInterface      $eventDispatcher
      * @param FormFactoryInterface          $formFactory
      * @param FilterBuilderUpdaterInterface $filterBuilderUpdater
      * @param RequestStack                  $requestStack
      * @param ViewHandlerInterface          $viewHandler
+     * @param LoggerInterface               $logger
      */
     public function __construct(
         ApiResourceManagerInterface $apiResourceManager,
@@ -76,7 +87,8 @@ abstract class AbstractApiResourceController
         FormFactoryInterface $formFactory,
         FilterBuilderUpdaterInterface $filterBuilderUpdater,
         RequestStack $requestStack,
-        ViewHandlerInterface $viewHandler
+        ViewHandlerInterface $viewHandler,
+        LoggerInterface $logger
     ) {
         $this->apiResourceManager = $apiResourceManager;
         $this->eventDispatcher = $eventDispatcher;
@@ -84,6 +96,7 @@ abstract class AbstractApiResourceController
         $this->filterBuilderUpdater = $filterBuilderUpdater;
         $this->requestStack = $requestStack;
         $this->viewHandler = $viewHandler;
+        $this->logger = $logger;
     }
 
     /**
@@ -124,7 +137,7 @@ abstract class AbstractApiResourceController
     public function getApiResourcesAction()
     {
         $queryBuilder = $this->createQueryBuilder();
-        $form = $this->formFactory->create($this->getApiResourceFilterFormClass());
+        $form = $this->formFactory->createNamed(null, $this->getApiResourceFilterFormClass());
         $form->submit($this->requestStack->getCurrentRequest()->query->all());
 
         $orderByField = $this->requestStack->getMasterRequest()->query->get(
@@ -140,12 +153,80 @@ abstract class AbstractApiResourceController
             in_array($orderByField, $this->getRepository()::getSortableFields())
             && in_array(strtolower($orderByDirection), ['asc', 'desc'])
         ) {
-            $queryBuilder->orderBy($queryBuilder->getRootAliases()[0] . '.' . $orderByField, $orderByDirection);
+            $queryBuilder->orderBy($queryBuilder->getRootAliases()[0].'.'.$orderByField, $orderByDirection);
         }
 
         $this->filterBuilderUpdater->addFilterConditions($form, $queryBuilder);
 
         return View::create($this->paginate($queryBuilder));
+    }
+
+    /**
+     * @Rest\Get("/new")
+     * @param ParamFetcher $paramFetcher
+     * @param Request      $request
+     *
+     * @return Response
+     * @throws Exception
+     */
+    public function getNewApiResourceForm(ParamFetcher $paramFetcher, Request $request)
+    {
+        $router = $this->get("router");
+        $route = $router->match($request->getPathInfo());
+
+        //$resource = new $this->resource;
+        $filter = $this->formFactory->createNamed(null, $this->getApiResourceFilterFormClass());
+        $filter->submit($this->requestStack->getCurrentRequest()->query->all());
+
+        $form = $this->formFactory->createNamed(
+            null,
+            $this->getApiResourceFormClass(),
+            $filter->getData(),
+            [
+                'method' => 'POST',
+                'action' => $this->generateUrl(
+                    str_replace('_getnewapiresourceform', '_postapiresource', $route['_route']),
+                    [],
+                    UrlGeneratorInterface::ABSOLUTE_URL
+                ),
+            ]
+        );
+
+        return View::create($form->createView())
+            ->setTemplate('@HessnaturSimpleRestCRUD/ApiResource/form.html.twig')
+            ->setTemplateData(['form' => $form->createView()]);
+    }
+
+    /**
+     * @Rest\Get("/{id}/edit")
+     * @param ParamFetcher $paramFetcher
+     * @param Request      $request
+     *
+     * @return Response
+     * @throws Exception
+     */
+    public function getEditApiResourceForm(ParamFetcher $paramFetcher, Request $request, $id)
+    {
+        $router = $this->get("router");
+        $route = $router->match($request->getPathInfo());
+
+        $form = $this->formFactory->createNamed(
+            null,
+            $this->getApiResourceFormClass(),
+            $this->fetchApiResource($id),
+            [
+                'method' => 'PUT',
+                'action' => $this->generateUrl(
+                    str_replace('_geteditapiresourceform', '_putapiresource', $route['_route']),
+                    ['id' => $id],
+                    UrlGeneratorInterface::ABSOLUTE_URL
+                ),
+            ]
+        );
+
+        return View::create($form->createView())
+            ->setTemplate('@HessnaturSimpleRestCRUD/ApiResource/form.html.twig')
+            ->setTemplateData(['form' => $form->createView()]);
     }
 
     /**
@@ -180,9 +261,21 @@ abstract class AbstractApiResourceController
             new ApiResourceEvent($apiResource),
             HessnaturSimpleRestCRUDEvents::BEFORE_DELETE_API_RESOURCE
         );
+
         $this->apiResourceManager->remove($apiResource);
 
-        return View::create(null, Response::HTTP_OK);
+        $this->eventDispatcher->dispatch(
+            new ApiResourceEvent($apiResource),
+            HessnaturSimpleRestCRUDEvents::AFTER_DELETE_API_RESOURCE
+        );
+
+        /**
+         * No Content given
+         * @see https://www.w3.org/Protocols/rfc2616/rfc2616-sec9.html
+         * @see https://en.wikipedia.org/wiki/List_of_HTTP_status_codes#2xx_Success
+         */
+
+        return View::create(null, Response::HTTP_NO_CONTENT);
     }
 
     /**
@@ -232,7 +325,8 @@ abstract class AbstractApiResourceController
             }
         }
 
-        $form = $this->formFactory->create($this->getApiResourceFormClass(), $apiResource);
+        $form = $this->formFactory->createNamed(null, $this->getApiResourceFormClass(), $apiResource);
+        $this->requestStack->getMasterRequest()->request->remove('_method');
         $form->submit($this->requestStack->getMasterRequest()->request->all());
 
         if ($form->isValid()) {
@@ -250,10 +344,17 @@ abstract class AbstractApiResourceController
                     : HessnaturSimpleRestCRUDEvents::AFTER_UPDATE_API_RESOURCE
             );
 
-            return View::create($apiResource, $responseCode);
+
+            return View::create($apiResource, $responseCode)
+                ->setTemplate('@HessnaturSimpleRestCRUD/ApiResource/form.html.twig')
+                ->setTemplateData(['form'=>$form->createView()])
+                ;
         }
 
-        return View::create(['form' => $form], Response::HTTP_BAD_REQUEST);
+        return View::create(['form' => $form], Response::HTTP_BAD_REQUEST)
+            ->setTemplate('@HessnaturSimpleRestCRUD/ApiResource/form.html.twig')
+            ->setTemplateData(['form' => $form->createView()])
+            ;
     }
 
     /**
